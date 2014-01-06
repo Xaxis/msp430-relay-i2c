@@ -1,7 +1,7 @@
 //******************************************************************************
-//   MSP430G2x31 - I2C Relay Controller, Master
+// MSP430G2x31 - I2C Relay Controller, Master
 //
-//   Description: This is the test firmware for the I2C master controller. It
+// Description: This is the test firmware for the I2C master controller. It
 // currently advances, by action of s2 on the launchpad (falling edge of P1.3),
 // the control word from 0x00 through 0x1111 were each bit is the relay to be
 // (0) opened or (1) closed.
@@ -10,136 +10,257 @@
 
 #include <msp430g2231.h>
 
-char MST_Data = 0;						// Variable for transmitted data
-char SLV_Addr = 0x90;					// Address is 0x48 << 1 bit + 0 for Write
-int I2C_State = 0;						// State variable
+// Variable for transmitted data
+char MST_Data = 0;
+
+// Address is 0x48 << 1 bit + 0 for Write
+char SLV_Addr = 0x90;
+
+// State variable
+int I2C_State = 0;						
 
 void main(void) {
-	volatile unsigned int i;             // Use volatile to prevent removal
 
-	WDTCTL = WDTPW + WDTHOLD;            // Stop watchdog
-	if (CALBC1_1MHZ ==0xFF || CALDCO_1MHZ == 0xFF) {
-		while(1);                          // If calibration constants erased do not load, trap CPU!!
-	}
-	BCSCTL1 = CALBC1_1MHZ;               // Set DCO
-	DCOCTL = CALDCO_1MHZ;
+  // Use volatile to prevent removal
+  volatile unsigned int i;
 
-	P1OUT = 0xC0;                        // P1.6 & P1.7 Pullups, others to 0
-	P1OUT |= BIT3;
-	P1REN |= 0xC0;                       // P1.3, P1.6 & P1.7 Pullups
-	P1REN |= BIT3;
-	P1DIR = 0xFF;
-	P1DIR &= ~BIT3;                   // Unused pins as outputs. s2 as input.
-	P1IE |= BIT3; 	   				// Enable P1 interrupt for P1.3
-	P2OUT = 0;
-	P2DIR = 0xFF;
+  // Stop watchdog
+  WDTCTL = WDTPW + WDTHOLD;
 
-	USICTL0 = USIPE6+USIPE7+USIMST+USISWRST; // Port & USI mode setup
-	USICTL1 = USII2C+USIIE;              // Enable I2C mode & USI interrupt
-	USICKCTL = USIDIV_3+USISSEL_2+USICKPL; // Setup USI clocks: SCL = SMCLK/8 (~125kHz)
-	USICNT |= USIIFGCC;                  // Disable automatic clear control
-	USICTL0 &= ~USISWRST;                // Enable USI
-	USICTL1 &= ~USIIFG;                  // Clear pending flag
-	P1IFG &= ~BIT3;						// Clear p1.3 interrupt flag.
-	_EINT();
+  // If calibration constants erased do not load, trap CPU!!
+  if (CALBC1_1MHZ ==0xFF || CALDCO_1MHZ == 0xFF) {
+    while(1);                          
+  }
 
-	while(1) {
-		USICTL1 |= USIIFG;                 // Set flag and start communication
-		LPM0;                              // CPU off, await USI interrupt
-		_NOP();                            // Used for IAR
-		for (i = 0; i < 5000; i++);        // Dummy delay between communication cycles
-	}
+  // Set DCO
+  BCSCTL1 = CALBC1_1MHZ;               
+  DCOCTL = CALDCO_1MHZ;
+
+  // P1.6 & P1.7 Pullups, others to 0
+  P1OUT = 0xC0;                        
+  P1OUT |= BIT3;
+
+  // P1.3, P1.6 & P1.7 Pullups
+  P1REN |= 0xC0;                       
+  P1REN |= BIT3;
+  P1DIR = 0xFF;
+
+  // Unused pins as outputs. s2 as input.
+  P1DIR &= ~BIT3;
+
+  // Enable P1 interrupt for P1.3
+  P1IE |= BIT3; 	   				
+  P2OUT = 0;
+  P2DIR = 0xFF;
+
+  // Port & USI mode setup
+  USICTL0 = USIPE6+USIPE7+USIMST+USISWRST;
+
+  // Enable I2C mode & USI interrupt
+  USICTL1 = USII2C+USIIE;
+
+  // Setup USI clocks: SCL = SMCLK/8 (~125kHz)
+  USICKCTL = USIDIV_3+USISSEL_2+USICKPL;
+
+  // Disable automatic clear control
+  USICNT |= USIIFGCC;
+
+  // Enable USI
+  USICTL0 &= ~USISWRST;
+
+  // Clear pending flag
+  USICTL1 &= ~USIIFG;
+
+  // Clear p1.3 interrupt flag.
+  P1IFG &= ~BIT3;						
+  _EINT();
+
+  while(1) {
+
+    // Set flag and start communication
+    USICTL1 |= USIIFG;
+
+    // CPU off, await USI interrupt
+    LPM0;
+
+    // Used for IAR
+    NOP();
+
+    // Dummy delay between communication cycles
+    for (i = 0; i < 5000; i++);        
+  }
 }
 
 /******************************************************
-// Port1 isr
-******************************************************/
+ // Port1 isr
+ ******************************************************/
 
 #pragma vector=PORT1_VECTOR
 __interrupt void Port_1(void) {
-	USICTL1 &= ~USIIE;			// Disable I2C interrupt until we finish.
 
-	P1IE &= ~BIT3;				// Clear own interrupt until we finish
+  // Disable I2C interrupt until we finish.
+  USICTL1 &= ~USIIE;
 
-	if(MST_Data < 15) {
-		MST_Data++;            // Increment Master data
-	} else {
-		MST_Data = 0;
-	}
-	P1OUT &= ~BIT0;
-	__delay_cycles(1000000);
-	P1OUT |= BIT0;
+  // Clear own interrupt until we finish
+  P1IE &= ~BIT3;				
 
-	P1IE |= BIT3;				// Re-enable own interrupt and clear interrupt flag.
-	P1IFG &= ~BIT3;
+  if(MST_Data < 15) {
 
-	USICTL1 |= USIIE;			// Re-enable I2C interrupt and clear pending flag.
-	USICTL1 &= ~USIIFG;
+    // Increment Master data
+    MST_Data++;            
+  } else {
+    MST_Data = 0;
+  }
+  P1OUT &= ~BIT0;
+  __delay_cycles(1000000);
+  P1OUT |= BIT0;
+
+  // Re-enable own interrupt and clear interrupt flag.
+  P1IE |= BIT3;				
+  P1IFG &= ~BIT3;
+
+  // Re-enable I2C interrupt and clear pending flag.
+  USICTL1 |= USIIE;			
+  USICTL1 &= ~USIIFG;
 }
 
 /******************************************************
-// USI isr
-******************************************************/
+ // USI isr
+ ******************************************************/
 #pragma vector = USI_VECTOR
 __interrupt void USI_TXRX (void) {
-	switch(I2C_State) {
-		case 0: // Generate Start Condition & send address to slave
-              //P1OUT |= 0x01;           // LED on: sequence start
-			USISRL = 0x00;           // Generate Start Condition...
-			USICTL0 |= USIGE+USIOE;
-			USICTL0 &= ~USIGE;
-			USISRL = SLV_Addr;       // ... and transmit address, R/W = 0
-			USICNT = (USICNT & 0xE0) + 0x08; // Bit counter = 8, TX Address
-			I2C_State = 2;           // Go to next state: receive address (N)Ack
-			break;
+  switch(I2C_State) {
 
-		case 2: // Receive Address Ack/Nack bit
-			USICTL0 &= ~USIOE;       // SDA = input
-			USICNT |= 0x01;          // Bit counter = 1, receive (N)Ack bit
-			I2C_State = 4;           // Go to next state: check (N)Ack
-			break;
+    // Generate Start Condition & send address to slave
+    case 0:
 
-		case 4: // Process Address Ack/Nack & handle data TX
-			USICTL0 |= USIOE;        // SDA = output
-			if (USISRL & 0x01) {       // If Nack received, send stop
-				USISRL = 0x00;
-				USICNT |=  0x01;       // Bit counter = 1, SCL high, SDA low
-				I2C_State = 10;        // Go to next state: generate Stop
-				//P1OUT |= 0x01;         // Turn on LED: error
-			} else { // Ack received, TX data to slave...
-				USISRL = MST_Data;     // Load data byte
-				USICNT |=  0x08;       // Bit counter = 8, start TX
-				I2C_State = 6;         // Go to next state: receive data (N)Ack
-				//P1OUT &= ~0x01;        // Turn off LED
-			} break;
+      // LED on: sequence start
+      //P1OUT |= 0x01;          
 
-		case 6: // Receive Data Ack/Nack bit
-			USICTL0 &= ~USIOE;       // SDA = input
-			USICNT |= 0x01;          // Bit counter = 1, receive (N)Ack bit
-			I2C_State = 8;           // Go to next state: check (N)Ack
-			break;
+      // Generate Start Condition...
+      USISRL = 0x00;           
+      USICTL0 |= USIGE+USIOE;
+      USICTL0 &= ~USIGE;
 
-		case 8: // Process Data Ack/Nack & send Stop
-			USICTL0 |= USIOE;
-			if (USISRL & 0x01) {       // If Nack received...
-                //P1OUT |= 0x01;         // Turn on LED: error
-			} else {                     // Ack received
-				//P1OUT &= ~0x01;        // Turn off LED
-			}
-			// Send stop...
-			USISRL = 0x00;
-			USICNT |=  0x01;         // Bit counter = 1, SCL high, SDA low
-			I2C_State = 10;          // Go to next state: generate Stop
-			break;
+      // ... and transmit address, R/W = 0
+      USISRL = SLV_Addr;
 
-		case 10:// Generate Stop Condition
-			USISRL = 0x0FF;          // USISRL = 1 to release SDA
-			USICTL0 |= USIGE;        // Transparent latch enabled
-			USICTL0 &= ~(USIGE+USIOE);// Latch/SDA output disabled
-			I2C_State = 0;           // Reset state machine for next transmission
-			LPM0_EXIT;               // Exit active for next transfer
-			break;
-	}
-	USICTL1 &= ~USIIFG;                  // Clear pending flag
+      // Bit counter = 8, TX Address
+      USICNT = (USICNT & 0xE0) + 0x08;
+
+      // Go to next state: receive address (N)Ack
+      I2C_State = 2;           
+      break;
+
+    // Receive Address Ack/Nack bit
+    case 2:
+
+      // SDA = input
+      USICTL0 &= ~USIOE;
+
+      // Bit counter = 1, receive (N)Ack bit
+      USICNT |= 0x01;
+
+      // Go to next state: check (N)Ack
+      I2C_State = 4;           
+      break;
+
+    // Process Address Ack/Nack & handle data TX
+    case 4:
+
+      // SDA = output
+      USICTL0 |= USIOE;
+
+      // If Nack received, send stop
+      if (USISRL & 0x01) {       
+        USISRL = 0x00;
+
+        // Bit counter = 1, SCL high, SDA low
+        USICNT |=  0x01;
+
+        // Go to next state: generate Stop
+        I2C_State = 10;
+
+        // Turn on LED: error
+        //P1OUT |= 0x01;         
+
+      // Ack received, TX data to slave...
+      } else {
+
+        // Load data byte
+        USISRL = MST_Data;
+
+        // Bit counter = 8, start TX
+        USICNT |=  0x08;
+
+        // Go to next state: receive data (N)Ack
+        I2C_State = 6;
+
+        // Turn off LED
+        //P1OUT &= ~0x01;        
+      } 
+      break;
+
+    // Receive Data Ack/Nack bit
+    case 6:
+
+      // SDA = input
+      USICTL0 &= ~USIOE;
+
+      // Bit counter = 1, receive (N)Ack bit
+      USICNT |= 0x01;
+
+      // Go to next state: check (N)Ack
+      I2C_State = 8;           
+      break;
+
+    // Process Data Ack/Nack & send Stop
+    case 8: 
+      USICTL0 |= USIOE;
+
+      // If Nack received...
+      if (USISRL & 0x01) {
+
+        // Turn on LED: error
+        //P1OUT |= 0x01;         
+
+      // Ack received
+      } else {
+
+        // Turn off LED
+        //P1OUT &= ~0x01;        
+      }
+      // Send stop...
+      USISRL = 0x00;
+
+      // Bit counter = 1, SCL high, SDA low
+      USICNT |=  0x01;
+
+      // Go to next state: generate Stop
+      I2C_State = 10;          
+      break;
+
+    // Generate Stop Condition
+    case 10:
+
+      // USISRL = 1 to release SDA
+      USISRL = 0x0FF;
+
+      // Transparent latch enabled
+      USICTL0 |= USIGE;
+
+      // Latch/SDA output disabled
+      USICTL0 &= ~(USIGE+USIOE);
+
+      // Reset state machine for next transmission
+      I2C_State = 0;
+
+      // Exit active for next transfer
+      LPM0_EXIT;               
+      break;
+  }
+
+  // Clear pending flag
+  USICTL1 &= ~USIIFG;                  
 }
 
